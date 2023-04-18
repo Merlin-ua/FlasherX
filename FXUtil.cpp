@@ -31,13 +31,13 @@ void read_ascii_line( Stream *serial, char *line, int maxbytes );
 int  parse_hex_line( const char *theline, char *bytes,
 	unsigned int *addr, unsigned int *num, unsigned int *code );
 int  process_hex_record( hex_info_t *hex );
-void update_firmware( Stream *in, Stream *out,
+uint32_t update_firmware( Stream *in, Stream *out,
 			uint32_t buffer_addr, uint32_t buffer_size );
 
 //******************************************************************************
 // update_firmware()	read hex file and write new firmware to program flash
 //******************************************************************************
-void update_firmware( Stream *in, Stream *out, 
+uint32_t update_firmware( Stream *in, Stream *out, 
 				uint32_t buffer_addr, uint32_t buffer_size )
 {
   static char line[96];					// buffer for hex lines
@@ -65,13 +65,13 @@ void update_firmware( Stream *in, Stream *out,
     }
     else if (process_hex_record( &hex ) != 0) { // error on bad hex code
       out->printf( "abort - invalid hex code %d\n", hex.code );
-      return;
+      return 0;
     }
     else if (hex.code == 0) { // if data record
       uint32_t addr = buffer_addr + hex.base + hex.addr - FLASH_BASE_ADDR;
       if (hex.max > (FLASH_BASE_ADDR + buffer_size)) {
         out->printf( "abort - max address %08lX too large\n", hex.max );
-        return;
+        return 0;
       }
       else if (!IN_FLASH(buffer_addr)) {
         memcpy( (void*)addr, (void*)hex.data, hex.num );
@@ -80,7 +80,7 @@ void update_firmware( Stream *in, Stream *out,
         int error = flash_write_block( addr, hex.data, hex.num );
         if (error) {
           out->printf( "abort - error %02X in flash_write_block()\n", error );
-	  return;
+          return 0;
         }
       }
     }
@@ -98,7 +98,7 @@ void update_firmware( Stream *in, Stream *out,
   }
   else {
     out->printf( "abort - FSEC value %08lX should be FFFFF9DE\n", value );
-    return;
+    return 0;
   } 
   #endif
 
@@ -108,31 +108,10 @@ void update_firmware( Stream *in, Stream *out,
   }
   else {
     out->printf( "abort - new code missing string %s\n", FLASH_ID );
-    return;
+    return 0;
   }
-  
-  // get user input to write to flash or abort
-  int user_lines = -1;
-  while (user_lines != hex.lines && user_lines != 0) {
-    out->printf( "enter %d to flash or 0 to abort\n", hex.lines );
-    read_ascii_line( out, line, sizeof(line) );
-    sscanf( line, "%d", &user_lines );
-  }
-  
-  if (user_lines == 0) {
-    out->printf( "abort - user entered 0 lines\n" );
-    return;
-  }
-  else {
-    out->printf( "calling flash_move() to load new firmware...\n" );
-    out->flush();
-  }
-  
-  // move new program from buffer to flash, free buffer, and reboot
-  flash_move( FLASH_BASE_ADDR, buffer_addr, hex.max-hex.min );
 
-  // should not return from flash_move(), but put REBOOT here as reminder
-  REBOOT;
+  return hex.max - hex.min;
 }
 
 //******************************************************************************
